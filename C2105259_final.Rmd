@@ -1,0 +1,732 @@
+---
+title: "Statistical analysis on the NBA(2014-15) dataset"
+author: "Siva Sathguru Pandiyarajan"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+
+fontsize: 11pt
+fontfamily: times
+geometry: margin=1in
+
+output:
+  pdf_document :
+      latex_engine : xelatex
+  #bookdown::pdf_document2:
+  toc: true
+  number_sections: true
+  keep_tex: true 
+  citation_package: natbib
+  fig_caption: true
+  highlight: haddock 
+  df_print: kable
+  extra_dependencies:
+    caption: ["labelfont={bf}"]
+    
+biblio-style: apalike
+link-citations: yes
+
+abstract: The aim of this report is on showing how different descriptive and inferential statistical approaches may be used to and how their findings can be interpreted and presented by using National Basketball Association (NBA), 2014-2015 dataset.The evaluation is established on the effect of accuracy over fatigue and stress along with the defender proximity analysis and shooting distance over shot accuracy,where we have analysed that the elite basketball players cope really well with such extreme circumstances however effects of psychological stress are highly visible. The goal of this research is to determine if the top scorer of a team is able to assist his side win the match, when both the number of shooting attempts and the accuracy are more exceptional. In addition, we analyse this season's finest defenders.
+---
+<!-- set knitr options here -->
+```{r setup, include=FALSE}
+library(knitr)
+library(tidyverse)
+library(kableExtra)
+library(dplyr)
+library(magrittr)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(tidyr)
+library(pastecs)
+library(gridExtra)
+library(corrplot)
+library(Hmisc)
+library(car)
+library(broom)
+library(ppcor)
+library(ggpubr)
+library(ggplot2)
+library(MASS)
+library(pROC)
+library(tibble)
+library(scales)
+library(reshape2)
+library(reshape)
+library(tinytex)
+library(plyr)
+library(ggcorrplot)
+library(grid)
+library(gridExtra)
+library(lattice)
+
+# read data and check its value with head comment
+nbaleague_df <- read.csv('../Mat022/NBA_sample.csv', header=TRUE)
+```
+<!-- main body starts here -->
+
+# Introduction {#sec:intro}
+
+The objective of this report is to analyse and to provide the relevant results for the data selected for use in statistical and math analyses. These analyses have been done using RStudio tools. This study will analyse different areas, show how the analytics were performed, discuss the theory employed, show and evaluate results achieved. If applicable, the study will also suggest future research topics.
+
+```{r, ecHO = FALSE}
+noquote('Variables names:')
+print(names(nbaleague_df))
+```
+```{r, include= FALSE}
+unique_game_ids <- unique(nbaleague_df$GAME_ID)
+print(length(unique_game_ids))
+unique_date <- unique(nbaleague_df$DATE)
+print(length(unique_date))
+
+unique_players <- unique(nbaleague_df$PLAYER_NAME)
+print(length(unique_players))
+
+unique_defplayers <- unique(nbaleague_df$CLOSEST_DEFENDER)
+print(length(unique_defplayers))
+
+unique_hometeam<-unique(nbaleague_df$HOME_TEAM)
+print(length(unique_hometeam))
+```
+**Remark** The dataset consists of the home teams and away teams with the total of $902$ games played over $120$ days with $468$ players appears as defenders with only $281$ players appear as shooters across $30$ different teams.
+
+# Statistical Analysis {#sec:stat_analysis}
+
+Descriptive analysis is to describe basic details of dataset. The quantitative description of number values for example median may be described as centrality measures, where the measurement of variation is spoken of standard deviation, variance, quartile ranges. We may utilize graphic plots to focus on the results of such a study. By summarizing it, it simplifies vast amounts of information sensibly. When we locate a mean,median and standard deviation, we can just tell much about a dataset.
+
+```{r tab-stat_analysis, echo=FALSE,warning=FALSE,message=FALSE}
+
+COL_NAME <- c("SHOT_NUMBER","SHOT_CLOCK","DRIBBLES","SHOT_DISTANCE","CLOSE_DEF_DIST")
+MEAN_VALUE <- c(mean(nbaleague_df$SHOT_NUMBER),mean(nbaleague_df$SHOT_CLOCK,na.rm =TRUE), mean(nbaleague_df$DRIBBLES), mean(nbaleague_df$SHOT_DIST), mean(nbaleague_df$CLOSE_DEF_DIST))
+MEDIAN_VALUE <- c(median(nbaleague_df$SHOT_NUMBER),median(nbaleague_df$SHOT_CLOCK,na.rm=TRUE),median(nbaleague_df$DRIBBLES),median(nbaleague_df$SHOT_DIST),median(nbaleague_df$CLOSE_DEF_DIST))
+S.D <- c(sd(nbaleague_df$SHOT_NUMBER),sd(nbaleague_df$SHOT_CLOCK,na.rm = TRUE),sd(nbaleague_df$DRIBBLES),sd(nbaleague_df$SHOT_DIST),sd(nbaleague_df$CLOSE_DEF_DIST))
+I_Q_R <- c(IQR(nbaleague_df$SHOT_NUMBER),IQR(nbaleague_df$SHOT_CLOCK,na.rm = TRUE),IQR(nbaleague_df$DRIBBLES),IQR(nbaleague_df$SHOT_DIST),IQR(nbaleague_df$CLOSE_DEF_DIST))
+sum_df <- data.frame(COL_NAME,MEAN_VALUE,MEDIAN_VALUE,S.D,I_Q_R)
+
+ sum_df%>%
+  kbl(caption = "Summary of important numerical variables",align = 'lccc',booktabs = TRUE) %>%
+  kable_classic(full_width = F, html_font = "Cambria")%>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),latex_options = "HOLD_position")
+```
+
+Corrplot is a graphical representation of correlation matrix. Helps us to determine the cor-related attributes. We have utilized all the numerical values assigned to the graph but there are certain variables that are both category and numerical, as indicated, so that they could be connected or not.
+
+```{r corr-pts-shots, echo = FALSE, fig.height = 4, fig.width = 4}
+
+CorrMat <- cor(nbaleague_df[c(1,10:16)])
+corrplot(CorrMat, method="color", type = "upper", order="hclust", tl.col="black")
+```
+As seen in the figure the Dribbles and touch_time has positive correlation as it shows a very favorable link between the amount of dribbles before shoot and touch time. This is quite acceptable, given the values basically measure the ball before a player shoots. This shows if the player was dribbling before shooting. This variable has more predictive ability than any dribble or contact time and resolves the colinearity problem between both.
+
+# Effects on Accuracy {#sec:period-shot}
+
+In this section, we investigate variables affect shot accuracy and shot selection.For each observation, approximately 20 different variables were tracked, including shooters distance to the basket, distance from the shooter to the nearest defender, and much more.
+
+## Closest Defender Distance vs Shot Accuracy
+
+This analysis focuses on whether there is a significant effect from closest defender distance to the shot outcome. The analysis is aimed to establish whether being away from the defender, i.e. having more time to prepare and execute a shot enables the shooter to score with a higher probability. Opposite effect will be when defender is close to the shooter it doesn’t leave the shooter enough time to prepare and 
+execute the shot properly.
+
+The Null Hypothesis is that the distance to a closest defender does not have an impact on accuracy of shooting.  
+
+```{r, echo=FALSE, include = FALSE}
+#Calculate accuracy against defender distance
+#Group the defender distance level
+distance_level <- as.data.frame(table(factor(nbaleague_df[, "CLOSE_DEF_DIST"])))
+head(distance_level)
+#Calculate how many times players scored in every defender distance
+for (i in 1:nrow(distance_level)){
+  distance_level[i, "SCORED"] <- sum(nbaleague_df[nbaleague_df[, "CLOSE_DEF_DIST"] == distance_level[i, "Var1"], "SUCCESS"])
+}
+#Calculate shooting accuracy for each distance
+distance_level$Accuracy <- round(distance_level$SCORED / distance_level$Freq, 4)
+#change distance level to numeric type for correlation test function
+distance_level$Var1 <- as.numeric(distance_level$Var1)
+distance_level$Var1 <- distance_level$Var1 * 0.1 - 0.1 #to keep the distance point as it is
+```
+```{r, echo = FALSE, include = FALSE}
+gdd <- ggplot(data = nbaleague_df) + geom_bar(aes(x = nbaleague_df[, "CLOSE_DEF_DIST"])) +
+  scale_x_discrete("Closest Defender Distance", breaks = c (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24), limits = 0:24) + 
+  ggtitle("Defender Distance Distribution")
+
+```
+
+```{r, echo=FALSE, include = FALSE}
+#Plotting the result
+gdd1 <- ggplot(data = distance_level) +
+  geom_point(aes(x = Var1, y = Accuracy)) +
+  scale_y_continuous(labels = percent, breaks = c(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), limits = c(0, 1)) +
+  scale_x_discrete("Closest Defender Distance", limits = 0:24) +  
+  ylab("Shooting Accuracy (%)") + ggtitle("Closest Defender Distance vs Shooting Accuracy")
+```
+```{r, echo=FALSE}
+grid.arrange(gdd, gdd1,
+             nrow = 1)
+```
+
+**Results**
+
+Plot Result
+
+**Table 1**: Relationship between the defender distance and accuracy
+
+Defender Distance (range in feet) | accuracy (range in %) 
+- | -
+  0 - 2 | 38 - 49
+2 - 4 | 44 - 50
+4 - 6 | 41 - 46
+6 - 8 | 39 - 50
+8 - 10 | 34 - 54
+10 - 16 | 24 - 66
+16+ | 0 - 100
+
+
+**Correlation Test**
+
+The next analysis calculates the correlation between both variables. If the analysis included all data points for every distance, the correlation result would be as follows:
+There is a medium to strong positive correlation between the defender distance and shooting accuracy. The Pearson's correlation coefficient for the relationship between the variables "Defender Distance" and "Accuracy" was r(242) = .46, p < .01, with a level of significance of p = .05.
+  
+
+```{r, include=FALSE}
+#populate data points from data frame
+distanceZerotoAll <- c()
+accuracyDist1 <- c()
+for (i in 0:nrow(distance_level)){
+  distanceZerotoAll <- c(distanceZerotoAll, distance_level[i, "Var1"])
+  accuracyDist1 <- c(accuracyDist1, distance_level[i, "Accuracy"])
+}
+#combine data frame
+dfZerotoAll <- data.frame(distanceZerotoAll, accuracyDist1)
+```
+
+```{r, include = FALSE}
+#calculate correlation
+cor.test(dfZerotoAll$distanceZerotoAll, dfZerotoAll$accuracyDist1)
+```
+
+**Correlation Test Result**
+
+When analyzing the relationship between distance and the accuracy for the range of 0 to 8 feet distance the result of the correlation is different:  
+There was weak negative correlation between the defender distance and shooting accuracy in this range. The Pearson's correlation coefficient for the relationship between the variables Defender Distance and Accuracy was r(297) = -0.18, p < .01, with the level of significance of p = .05.
+
+```{r, include=FALSE}
+#populate data from data frame
+distanceZerotoEight <- c()
+accuracyDist2 <- c()
+for (i in 0:80){
+  distanceZerotoEight <- c(distanceZerotoEight, distance_level[i, "Var1"])
+  accuracyDist2 <- c(accuracyDist2, distance_level[i, "Accuracy"])
+}
+#combine data frame
+dfZerotoEight <- data.frame(distanceZerotoEight, accuracyDist2)
+```
+
+```{r, include=FALSE}
+#calculate correlation
+cor.test(dfZerotoEight$distanceZerotoEight, dfZerotoEight$accuracyDist2)
+```
+
+**Discussion**
+
+The research demonstrates that the defender distance in specific ranges has been impacted by the accuracy rate. There is an adverse connection between distance and accuracy with the defender's distance from 0 to 8 feet, implying that players are more likely to miss when the defender comes closer. Data vary from 0 percent for the distance longer than 16 feet (not shot from that distance) up to 100 percent (assured successful shot from that distance). This implies that the findings of this analysis are insignificant and should not be taken into account. It also shows that only a small amount of shots were made for higher defender distances. Therefore, it would affect the accuracy calculation result. However, from the correlation perspective, the result would be different if the analysis included all of the data points versus only short distance data points. This was arguably due to the fact that the defender distance does not mean the shooter distance from the basket was closer. Therefore, we reject the Null Hypothesis, since the defender distance affected shooting accuracy.  
+
+## Shooting Distance vs Shot Accuracy
+
+This analysis focuses on whether there is any significant effect resulting from shooting distance from basket on the shot outcome. The NULL hypothesis is that the distance to the basket does not influence outcome of a shot.  
+
+```{r, include=FALSE}
+#Calculate accuracy against shooting distance
+#Group the shooting distance level
+shooting_distance_level <- as.data.frame(table(factor(nbaleague_df[, "SHOT_DIST"])))
+head(shooting_distance_level)
+#Calculate how many times players scored in every shooting distance
+for (i in 1:nrow(shooting_distance_level)){
+  shooting_distance_level[i, "SCORED"] <- sum(nbaleague_df[nbaleague_df[, "SHOT_DIST"] == shooting_distance_level[i, "Var1"], "SUCCESS"])
+}
+#Calculate shooting accuracy for each distance
+shooting_distance_level$Accuracy <- round(shooting_distance_level$SCORED / shooting_distance_level$Freq, 4)
+#change distance level to numeric type for correlation test function
+shooting_distance_level$Var1 <- as.numeric(shooting_distance_level$Var1)
+shooting_distance_level$Var1 <- shooting_distance_level$Var1 * 0.1 - 0.1 #to maintain distance data point as it is
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, }
+#Plotting the result
+library(ggplot2)
+library(scales)
+ggplot(data = shooting_distance_level, aes(x = shooting_distance_level$Var1, y = shooting_distance_level$Accuracy)) + 
+  geom_point(aes(x = shooting_distance_level$Var1, y = shooting_distance_level$Accuracy)) + 
+  scale_y_continuous(labels = percent, breaks = c(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), limits = c(0, 1)) +
+  scale_x_discrete("Shooting Distance", limits = 0:43) + 
+  geom_smooth() + 
+  ylab("Shooting Accuracy (%)") + 
+  ggtitle("Shooting Distance vs Shooting Accuracy")
+```
+
+**Table 2**: The relationship between the shooter distance ranges and accuracy
+
+Distance (in feet) | Accuracy (range in %)
+- | -
+  0 - 2 | 50 - 70
+2 - 4 | 60 - 66
+4 - 6 | 47 - 57
+6 - 8 | 35 - 49
+8 - 10 | 35 - 51
+10 - 12 | 28 - 45
+12 - 14 | 33 - 55
+14 - 16 | 35 - 52
+16 - 18 | 37 - 52
+18 - 24 | 31 - 51
+24 - 28 | 20 - 45
+28+ | 0 - 50
+
+
+There is a strong negative correlation between the shooting distance and shooting accuracy. The Pearson's correlation coefficient for the relationship between the variables Shooting Distance and Shot Accuracy was r(403) = -24.41, p < .05, with the level of significance of p = .05.
+
+```{r, include=FALSE}
+#populate data for every shooting distance
+shootingDistanceZerotoAll <- c()
+shootingAccuracyDist1 <- c()
+for (i in 0:nrow(shooting_distance_level)){
+  shootingDistanceZerotoAll <- c(shootingDistanceZerotoAll, shooting_distance_level[i, "Var1"])
+  shootingAccuracyDist1 <- c(shootingAccuracyDist1, shooting_distance_level[i, "Accuracy"])
+}
+dfShootingZerotoAll <- data.frame(shootingDistanceZerotoAll, shootingAccuracyDist1)
+```
+
+```{r, include = FALSE}
+cor.test(dfShootingZerotoAll$shootingDistanceZerotoAll, dfShootingZerotoAll$shootingAccuracyDist1)
+```
+
+
+**Correlation Test Result**
+
+If the correlation test taken for a certain range of distance based on the diagram, the correlation result would be different as follows:
+There was low positive correlation found between the shooting distance and shooting accuracy for the range 10 to 20 feet distance. The Pearson's correlation coefficient for the relationship between the variables Shooting Distance and Shot Accuracy was r(99) = 1.01, p =.31, failing to  the level of significance (p = .05).
+```{r, include=FALSE}
+#populate data for shooting distance in range 10 to 20 feet
+shootingDistance10to20 <- c()
+shootingAccuracyDist2 <- c()
+for (i in 100:200){
+  shootingDistance10to20 <- c(shootingDistance10to20, shooting_distance_level[i, "Var1"])
+  shootingAccuracyDist2 <- c(shootingAccuracyDist2, shooting_distance_level[i, "Accuracy"])
+}
+dfShooting10to20 <- data.frame(shootingDistance10to20, shootingAccuracyDist2)
+```
+
+```{r, include = FALSE}
+cor.test(dfShooting10to20$shootingDistance10to20, dfShooting10to20$shootingAccuracyDist2)
+```
+**Discussion**
+
+Based on the schematics and the linkage above, the relationship between these factors is not exactly linear, but the firing distance influences the accuracy of the shoot. This was demonstrated in the chart in which, independent of the shooter skill, the accuracy for shots taken from 10 to 20 feet was comparatively similar. Regarding the poor success rate on longer distances, it might maybe be concluded that the shooter attempted to shoot at close-up time (buzzer beater) or almost zero in the shot clock or clock – the study would therefore reject the null hypothesis.
+The dataset mostly returns 0% for shooting distance greater than 30 feet. Therefore, the future research could be enriched with statistics from other seasons to see if these findings hold.  
+
+
+## Fatigue Effect (Quarter Accuracy Rate) & Shot Clock Pressure  {#sec:rate-pres}
+
+This part of the analysis examines the potential impacts of fatigue and stress on the accuracy of shots.  
+
+Hypotheses for this area of analysis are:
+*Fatigue: The Null hypothesis states that there is no significant difference (p < .05) in the mean of shot accuracy in later periods of the game.
+*Stress: The Null hypothesis states that there is no significant difference (p < .05) in the means for the shot accuracy for lower seconds left on the shot clock.
+
+```{r fig:rate-pres, echo=FALSE, fig.height = 4, fig.width = 4, include = FALSE}
+bar.period <- ggplot(nbaleague_df) + geom_bar(aes(x = PERIOD, fill = "PERIOD"))
+bar.period + labs(title = "Number of shots taken per period") + scale_x_discrete(name ="Period", limits=c("1","2","3","4")) + ylab("Number of shots")
+```
+
+
+```{r, include = FALSE, fig.height = 4, fig.width = 4}
+### FATIGUE accuracy per period
+nbaleague_df.acc <- data.frame()
+for (i in (1:4)){
+  nbaleague_df.acc[i, "accuracy"] <- sum(nbaleague_df$PERIOD == i & nbaleague_df$SUCCESS == 1) / sum(nbaleague_df$PERIOD == i)
+  nbaleague_df.acc[i, "period"] <- i
+  if (nbaleague_df.acc$period[i] <= 3) nbaleague_df.acc[i, "fatigue"] <- 0
+  if (nbaleague_df.acc$period[i] >= 4) nbaleague_df.acc[i, "fatigue"] <- 1
+}
+nfatigue <- sum(nbaleague_df.acc$accuracy[nbaleague_df.acc$period <= 3])/3
+fatigue <- sum(nbaleague_df.acc$accuracy[nbaleague_df.acc$period >=4])/1
+t.test(nbaleague_df$SUCCESS[nbaleague_df$PERIOD == 1], nbaleague_df$SUCCESS[nbaleague_df$PERIOD == 2])
+t.test(nbaleague_df$SUCCESS[nbaleague_df$PERIOD == 2], nbaleague_df$SUCCESS[nbaleague_df$PERIOD == 3])
+t.test(nbaleague_df$SUCCESS[nbaleague_df$PERIOD == 1], nbaleague_df$SUCCESS[nbaleague_df$PERIOD == 3])
+t.test(nbaleague_df$SUCCESS[nbaleague_df$PERIOD == c(1:3)], nbaleague_df$SUCCESS[nbaleague_df$PERIOD == 4])
+
+#print(nbaleague_df.acc$accuracy)
+```
+
+```{r, echo = FALSE,fig.height = 4, fig.width = 4,warning= FALSE}
+### STRESS accuracy for Shot Clock dealing with missing values
+acc <- data.frame(seconds.left = c(0:21))
+#accuracy for every second
+for (i in (0:24)){
+  acc[i, "accuracy"] <- (sum(nbaleague_df$SHOT_CLOCK >= i & nbaleague_df$SHOT_CLOCK < i + 1 & nbaleague_df$SUCCESS == 1) / sum(nbaleague_df$SHOT_CLOCK >= i & nbaleague_df$SHOT_CLOCK < i + 1))
+}
+geo <- ggplot(acc, aes(x = seconds.left, y = accuracy)) + geom_point() + geom_smooth()
+```
+
+```{r, include=FALSE}
+#accuracy for players per second simplifying shot clock to seconds left
+nbaleague_df.acc.players <- dcast(nbaleague_df, PLAYER_ID + PLAYER_NAME + SHOT_CLOCK ~ SUCCESS)
+for (i in (1:nrow(nbaleague_df.acc.players))){
+  for (j in (0:24)){
+    if (nbaleague_df.acc.players$SHOT_CLOCK[i] >= j & nbaleague_df.acc.players$SHOT_CLOCK[i] < j + 1) nbaleague_df.acc.players[i, "seconds.left"] <- j
+
+  }
+}
+nbaleague_df.acc.secondsplayers<- nbaleague_df.acc.players
+nbaleague_df.acc.secondsplayers$SHOT_CLOCK <- NULL
+colnames(nbaleague_df.acc.secondsplayers)<- c( "PLAYER_ID", "PLAYER_NAME","X0", "X1","seconds.left") 
+nbaleague_df.acc.secondsplayers2 <- ddply(nbaleague_df.acc.secondsplayers, c("PLAYER_ID", "PLAYER_NAME","seconds.left"), summarise,
+                                X0= sum(X0),
+                                X1= sum(X1))
+nbaleague_df.acc.secondsplayers2$acc <-  nbaleague_df.acc.secondsplayers2$X1/(nbaleague_df.acc.secondsplayers2$X0+nbaleague_df.acc.secondsplayers2$X1)
+```
+
+
+```{r, include=FALSE}
+#nbaleague_df.acc.secondsplayers2[nbaleague_df.acc.secondsplayers2 == 99] <- NA
+nbaleague_df.acc.secondsplayers3 <- data.frame(row.names = c(0:21))
+nbaleague_df.acc.secondsplayers3$seconds.left <- c(0:21)
+for (i in nbaleague_df.acc.secondsplayers3$seconds.left){
+  nbaleague_df.acc.secondsplayers3$acc.top[nbaleague_df.acc.secondsplayers3$seconds.left == i] <- sum(nbaleague_df.acc.secondsplayers2$acc[nbaleague_df.acc.secondsplayers2$seconds.left == i & nbaleague_df.acc.secondsplayers2$PLAYER_NAME == "James Harden"][!is.na(nbaleague_df.acc.secondsplayers2$acc[nbaleague_df.acc.secondsplayers2$seconds.left == i & nbaleague_df.acc.secondsplayers2$PLAYER_NAME == "James Harden"])],     nbaleague_df.acc.secondsplayers2$acc[nbaleague_df.acc.secondsplayers2$seconds.left == i & nbaleague_df.acc.secondsplayers2$PLAYER_NAME == "Kyrie Irving"][!is.na(nbaleague_df.acc.secondsplayers2$acc[nbaleague_df.acc.secondsplayers2$seconds.left == i & nbaleague_df.acc.secondsplayers2$PLAYER_NAME == "Kyrie Irving"])])/2}
+ggplot(NULL) + geom_smooth(data = nbaleague_df.acc.secondsplayers3, aes(x = seconds.left, y = acc.top, color = "Top Players")) + geom_smooth(data = acc, aes(x = seconds.left, y = accuracy, color = "Average"))
+t.test(acc$accuracy, nbaleague_df.acc.secondsplayers3$acc.top)
+```
+
+**Remark** The T-tests for period 1 and period 2 was significant, t(25485) = 2.57, p = 0.009. Further the T-test for period 2 and 3 was not significant, t(25160) = -1.16, p = 0.244, as well as the T-test for period 1 and 3, t(26010) = 1.41, p = 0.15. 
+The T-test for the first 3 quarter and last quarter was highly significant, t(24232) = 3.45, p < .01.
+
+The changes in the overall accuracy per second are shown in the graph below.
+
+```{r, echo=FALSE, warning=FALSE, include=FALSE}
+graph.acc <- ggplot(acc, aes(x = seconds.left, y = accuracy)) + geom_point() + geom_smooth()
+graph.acc + labs(title = "Overall Accuracy per second left on shot clock") + xlab("Seconds left on shot clock") + ylab("Overall Accuracy") 
+```
+
+After all, the Null hypothesis must be rejected as the statistical methods used in latter times of the game show differences of accuracy even if in the first quarter the game is small but accuracy for future periods cannot be concluded. A significant decline in precision over 3% (46 to under 43 percent) was observed in the fourth quarter, indicating players are tired and any overtime may be significantly harder.
+
+The effects of psychological stress are, as shown in the chart above, extremely obvious. The accuracy of the shoot clock in the first ten seconds of the game time accuracy is higher than the normal accuracy (60%-45% vs. 45% in normal gambling), but it decreases quite quickly over the last five seconds of the shot clock (from 42% to 32%).
+
+An ad-hoc data analysis was performed to see whether this pattern of stress-induced precision decrease can also be identified by the "super star" player. The two top 2 shooters of the season were James Harden and Kyrie Irving.
+
+```{r, echo=FALSE,warning=FALSE, fig.height = 7, fig.width = 7}
+graph2 <- ggplot(NULL) + geom_smooth(data = nbaleague_df.acc.secondsplayers3, aes(x = seconds.left, y = acc.top, color = "Top Players")) + geom_smooth(data = acc, aes(x = seconds.left, y = accuracy, color = "Average"))
+#geo1 <-graph2 + labs(title = "Accuracy Average") + xlab("Seconds left on shot clock") + ylab("Accuracy")
+```
+```{r, echo = FALSE,warning=FALSE }
+grid.arrange(geo, graph2,
+             nrow = 1)
+```
+
+The graph shows many similarities for top players to the average graph. The most visual differences are the slightly lower accuracy around the 20 seconds mark for the top players. Explanations for these differences could be that around the 20 second mark top players feel more obligated to shoot than the average player, even when they are not in the optimal position to do so - leading to lower accuracy. 
+
+## Game result impact by field goal attempt 
+
+**Introduction**
+The objective of this study is to see if a team's top scorer can aid the team to achieve the match by performing more effectively both in terms of shooting attempts and accuracy. The null hypothesis is that it is unlikely that a team's leading scorer will win with more field attempts. The second null hypothesis is that if a team's best scorer has a greater shooting % than average, it is unlikely that it would gain. As this is such a specialised study, a literature evaluation has not found enough data to cover this gap.
+
+
+```{r, include=FALSE}
+
+nbaleague_df[, "WIN_LOSE"] <- as.character(nbaleague_df[, "WIN_LOSE"])
+for (i in 1:nrow(nbaleague_df)) {
+  if (nbaleague_df[i, "WIN_LOSE"] == "W") nbaleague_df[i, "WIN_LOSE"] <- 1
+  if (nbaleague_df[i, "WIN_LOSE"] == "L") nbaleague_df[i, "WIN_LOSE"] <- 0
+}
+
+nbaleague_df[, "WIN_LOSE"] <- as.numeric(nbaleague_df[, "WIN_LOSE"])
+# Reshape the dataframe
+shot.stats <- dcast(data = nbaleague_df, GAME_ID + HOME_TEAM + AWAY_TEAM + LOCATION  + WIN_LOSE + PLAYER_NAME ~ SUCCESS)
+
+# Field Goal Attempt
+shot.stats[, "FGA"] <- NA
+for(i in 1:nrow(shot.stats)){
+  shot.stats[i, "FGA"] <- shot.stats[i, "1"] + shot.stats[i, "0"]
+}
+str(shot.stats)
+# Find Feild Goal Percentage of each individual player in that match
+shot.stats[, "FG.percentage"] <- NA 
+for (i in 1:nrow(shot.stats)){
+  shot.stats[i, "FG.percentage"] <- round(((shot.stats[i, "1"]/shot.stats[i, "FGA"]) * 100), digits = 2)
+}
+```
+
+```{r, include=FALSE}
+# Pick out 15 of the best players in that regular season and create a new subset. Analyse how shooting percentage of these players can influence the result of a match.
+top.scorers.list <- c("James Harden", "Kyrie Irving", "Klay Thompson", "Nikola Vucevic", "Stephen Curry", "Lebron James", "Damian Lillard", "Rudy Gay", "Monta Ellis", "Blake Griffin", "Chris Paul", "Lamarcus Aldridge", "Anthony Davis", "John Wall", "Tyreke Evans") # 15 players picked out from all players
+top.scorers <- shot.stats[shot.stats$PLAYER_NAME %in% top.scorers.list, c("PLAYER_NAME", "WIN_LOSE", "LOCATION", "FGA", "FG.percentage")] # create a subset for these players
+top.scorers2 <- shot.stats[shot.stats$PLAYER_NAME %in% top.scorers.list, c("PLAYER_NAME", "WIN_LOSE", "LOCATION", "FGA", "FG.percentage")] # create a subset for these players
+# Replace 1 and 0 with "W" and "L" respectively, 
+top.scorers2[, "WIN_LOSE"] <- as.numeric(top.scorers2[, "WIN_LOSE"])
+for (i in 1:nrow(top.scorers)) {
+  if (top.scorers2[i, "WIN_LOSE"] == 1) top.scorers2[i, "WIN_LOSE"] <- "W"
+  if (top.scorers2[i, "WIN_LOSE"] == 0) top.scorers2[i, "WIN_LOSE"] <- "L"
+}
+top.scorers2[, "WIN_LOSE"] <- as.character(top.scorers2[, "WIN_LOSE"])
+```
+
+```{r, include=FALSE}
+
+# Correlation test
+cor.test(top.scorers$WIN_LOSE, top.scorers$FGA)
+cor.test(top.scorers$WIN_LOSE, top.scorers$FG.percentage)
+# Linear regression
+# summary(lm(FINAL_MARGIN ~ FGA + LOCATION, data = top.scorers)) # Final margin ~ FGA and location
+# summary(lm(FINAL_MARGIN ~ FG.percentage + LOCATION, data = top.scorers)) # Final margin ~ FG% and location
+# summary(lm(FINAL_MARGIN ~ FG.percentage + FGA + LOCATION, data = top.scorers)) 
+# Logistic regression
+model <- glm(WIN_LOSE ~ FGA + FG.percentage, data = top.scorers)
+summary(model)
+anova(model)
+```
+
+**Results**
+
+
+1. Field Goal Attempts (FGA)
+
+There was no correlation found between the outcome of the matches in this season and the number of attempts of the players made. The Pearson's correlation coefficient for the relationship between the variables WIN_LOSE and FGA was r(841) < .01, p = .770, failing to reach the level of significance (p = .05). 
+
+2. Field Goal Percentage (FG%)
+
+There was no correlation found between the outcome of the matches in this season and the field goal percentage of the players. The Pearson's correlation coefficient for the relationship between the variables W and FGA was r(841) < .01, p = .110, failing to reach the level of significance (p = .05).
+
+
+```{r, include=FALSE}
+# Find out "special" players by t-test
+# Chris Paul
+t.test(top.scorers$FGA[top.scorers$PLAYER_NAME == "Chris Paul" & top.scorers$WIN_LOSE == "1"], top.scorers$FGA[top.scorers$PLAYER_NAME == "Chris Paul" & top.scorers$WIN_LOSE == "0"])
+t.test(top.scorers$FG.percentage[top.scorers$PLAYER_NAME == "Chris Paul" & top.scorers$WIN_LOSE == "1"], top.scorers$FG.percentage[top.scorers$PLAYER_NAME == "Chris Paul" & top.scorers$WIN_LOSE == "0"])
+
+# James Harden
+t.test(top.scorers$FGA[top.scorers$PLAYER_NAME == "James Harden" & top.scorers$WIN_LOSE == "1"], top.scorers$FGA[top.scorers$PLAYER_NAME == "James Harden" & top.scorers$WIN_LOSE == "0"])
+t.test(top.scorers$FG.percentage[top.scorers$PLAYER_NAME == "James Harden" & top.scorers$WIN_LOSE == "1"], top.scorers$FG.percentage[top.scorers$PLAYER_NAME == "James Harden" & top.scorers$WIN_LOSE == "0"])
+# Klay Thompson
+t.test(top.scorers$FGA[top.scorers$PLAYER_NAME == "Klay Thompson" & top.scorers$WIN_LOSE == "1"], top.scorers$FGA[top.scorers$PLAYER_NAME == "Klay Thompson" & top.scorers$WIN_LOSE == "0"])
+t.test(top.scorers$FG.percentage[top.scorers$PLAYER_NAME == "Klay Thompson" & top.scorers$WIN_LOSE == "1"], top.scorers$FG.percentage[top.scorers$PLAYER_NAME == "Klay Thompson" & top.scorers$WIN_LOSE == "0"])
+# Monta Ellis
+t.test(top.scorers$FGA[top.scorers$PLAYER_NAME == "Monta Ellis" & top.scorers$WIN_LOSE == "1"], top.scorers$FGA[top.scorers$PLAYER_NAME == "Monta Ellis" & top.scorers$WIN_LOSE == "0"])
+t.test(top.scorers$FG.percentage[top.scorers$PLAYER_NAME == "Monta Ellis" & top.scorers$WIN_LOSE == "1"], top.scorers$FG.percentage[top.scorers$PLAYER_NAME == "Monta Ellis" & top.scorers$WIN_LOSE == "0"])
+# Lebron James
+t.test(top.scorers$FGA[top.scorers$PLAYER_NAME == "Lebron James" & top.scorers$WIN_LOSE == "1"], top.scorers$FGA[top.scorers$PLAYER_NAME == "Lebron James" & top.scorers$WIN_LOSE == "0"])
+t.test(top.scorers$FG.percentage[top.scorers$PLAYER_NAME == "Lebron James" & top.scorers$WIN_LOSE == "1"], top.scorers$FG.percentage[top.scorers$PLAYER_NAME == "Lebron James" & top.scorers$WIN_LOSE == "0"])
+
+special.list <- c("James Harden", "Klay Thompson", "Monta Ellis")
+special <- shot.stats[shot.stats$PLAYER_NAME %in% special.list, c("PLAYER_NAME", "WIN_LOSE", "LOCATION", "FGA", "FG.percentage")]
+special2 <- shot.stats[shot.stats$PLAYER_NAME %in% special.list, c("PLAYER_NAME", "WIN_LOSE", "LOCATION", "FGA", "FG.percentage")]
+special2[, "WIN_LOSE"] <- as.numeric(special2[, "WIN_LOSE"])
+for (i in 1:nrow(special2)) {
+  if (special2[i, "WIN_LOSE"] == 1) special2[i, "WIN_LOSE"] <- "W"
+  if (special2[i, "WIN_LOSE"] == 0) special2[i, "WIN_LOSE"] <- "L"
+}
+```
+```{r, echo= FALSE}
+gb1 <- ggplot(special2) + geom_boxplot(aes(x = PLAYER_NAME, y = FGA, colour = WIN_LOSE)) +
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5,  size = 5))
+gb2 <- ggplot(special2) + geom_boxplot(aes(x = PLAYER_NAME, y = FG.percentage, colour = WIN_LOSE)) +
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 5))
+grid.arrange(gb1,gb2, nrow = 2, ncol = 2) 
+```
+```{r, echo= FALSE, include=FALSE}
+special.model <- glm(WIN_LOSE ~ FGA + FG.percentage, data = special)
+summary(special.model)
+anova(special.model)
+```
+**Table 3**: Result for the logistic regression analysis for FGA and FG% of 15 players
+
+|   |Estimate | Std. Error | t value | Pr(>t)   
+|-|-|-|- | -             
+  |(Intercept)  | 0.5777166|   0.0558336   |  10.347     |  <2e-16 ***    
+|FGA   |-0.0027353|   0.0062801 | -0.436  |  0.663    
+|FG.percentage | 0.0012903|   0.0007914 |  1.630   |0.103    
+  
+
+**Table 4**: Result for the anova for FGA and FG% for 15 players
+
+| |           nbaleague_df| Deviance| Resid. nbaleague_df| Resid. Dev
+-|-|-|-|- 
+  |NULL        |     |              | 842   |  198.77
+|FGA         |   1  | 0.02009   |    841  |   198.75
+|FG.percentage | 1 |  0.62692   |    840  |   198.12
+
+
+An adhoc data analysis was used as 3 of the 15 players stood out in particular. To examine whether their data result in a better model, another logistic regression analysis was performed with the same dependent and independent variables for three special players: James Harden, Klay Thompson and Monta Ellis.
+
+```{r, echo=FALSE}
+graph01 <- ggplot(special2) + geom_boxplot(aes(x = PLAYER_NAME, y = FGA, colour = WIN_LOSE)) + labs(title = "Differences in FGA for games lost/won for particular players") + xlab("Player name") + ylab("FGA") +
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5,  size = 5))
+graph02 <- ggplot(special2) + geom_boxplot(aes(x = PLAYER_NAME, y = FG.percentage, colour = WIN_LOSE)) + labs(title = "Differences in FG% for games lost/won for particular players") + xlab("Player name") + ylab("FG%") +
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5,  size = 5))
+#graph01
+#graph02
+grid.arrange(graph01,graph02, nrow = 2, ncol = 2)
+```
+
+The box plots above shows the performances of the three special players in terms of FGA and FG% respectively.
+
+
+**Table 5**: Result for the logistic regression analysis for FGA and FG% of the 3 special players
+
+
+| | Estimate | Std. Error | t value | Pr(>t)   
+-|-|-|-| - 
+  |(Intercept)   | 0.5244791 |  0.1162145 |  4.513  |  1.17e-05 ***    
+|FGA          | -0.0001002 |  0.0129524 |  -0.008  |    0.99383    
+|FG.percentage |  0.0039459 |   0.0014703 |   2.684  | 0.00798 **
+
+  
+**Table 6**: Result for the anova for FGA and FG% for the 3 special players
+
+
+| |         nbaleague_df| Deviance| Resid. nbaleague_df| Resid. Dev
+|-|-|-|-| - 
+  |NULL         |   |         |       176|     36.723
+|FGA          |  1|   0.00011|       175|     36.723
+|FG.percentage|  1|   1.45965|       174|     35.263
+
+
+**Discussion**
+
+From the correlation tests between the match results and players' performances, it can be noticed that the increase in number of field goal attempts from top scorers is unlikely to make any impact on the results of the game. The p-values of both correlation tests are too high to reach the level of significance (p = .05).
+
+From FGA and FG percent logistic regression analysis, it was revealed that FGA had no influence on the match result. FG% is an important indicator of the match result. The anova has shown, however, that both variables have a fairly significant residual deviation and hence additional study is required to enhance this model.
+
+For these three players(James Harden, Klay Thompson and Monta Ellis), the p-values still did not reach the level of significance (p = .05) for FGA. However, all p-values are smaller than 0.05 when their FG%s were tested.
+
+The examination of these three players showed that there is a difference between them and the others, because by raising their shooting accuracy they can more contribute to the winning rates of their teams. 
+
+# Analysis on Best Defender {#sec:best_defen}
+
+```{r best_defen, echo = FALSE, include=FALSE}
+##adding a variable for clutch scenario
+nbaleague_df$Clutch = "No"
+nbaleague_df$Clutch[nbaleague_df$GAME_CLOCK <= 1 & nbaleague_df$PERIOD >= 4] = "Yes"
+nbaleague_df$Clutch = factor(nbaleague_df$Clutch)
+```
+
+```{r, include = FALSE}
+##Adding a Variable for Shot Type
+#then 
+nbaleague_df$SHOT_TYPE[nbaleague_df$DRIBBLES <= 1 & nbaleague_df$SHOT_DIST  > 4] = 'Catch and Shoot'
+nbaleague_df$SHOT_TYPE[nbaleague_df$DRIBBLES <= 1 & nbaleague_df$SHOT_DIST <= 4] = 'Cut'
+nbaleague_df$SHOT_TYPE[nbaleague_df$DRIBBLES > 1 & nbaleague_df$SHOT_DIST  <= 4] = 'Drive'
+nbaleague_df$SHOT_TYPE[nbaleague_df$DRIBBLES > 4] = 'ISO'
+nbaleague_df$SHOT_TYPE[nbaleague_df$DRIBBLES > 20] = 'Long ISO'
+nbaleague_df$SHOT_TYPE[nbaleague_df$DRIBBLES <=1 & nbaleague_df$PTS_TYPE == 3] = 'Spot Up Three'
+nbaleague_df$SHOT_TYPE = factor(nbaleague_df$SHOT_TYPE)
+
+summary(nbaleague_df$SHOT_TYPE)
+```
+
+
+```{r, include= FALSE}
+## Adding Shot Quality
+nbaleague_df$SHOT_QUALITY = 'Open'
+nbaleague_df$SHOT_QUALITY[nbaleague_df$CLOSE_DEF_DIST <= 2] = 'Tightly Contested'
+nbaleague_df$SHOT_QUALITY[nbaleague_df$CLOSE_DEF_DIST <= 3.5] = 'Contested'
+nbaleague_df$SHOT_QUALITY[nbaleague_df$CLOSE_DEF_DIST > 6] = 'Wide Open'
+nbaleague_df$SHOT_QUALITY = factor(nbaleague_df$SHOT_QUALITY)
+
+summary(nbaleague_df$SHOT_QUALITY)
+```
+
+**Best defender**
+
+```{r, echo= FALSE}
+DefenderList = levels(nbaleague_df$CLOSEST_DEFENDER)
+OppFG = rep(1, 468)
+OppPPP = rep(1, 468)
+OppDist = rep(1, 468)
+ShotsCont = rep(1, 468) 
+RimDist = rep(1, 468)
+ShotsNear = rep(1, 468)
+
+SUCCESS = nbaleague_df$SUCCESS
+PTS = nbaleague_df$PTS
+CLOSE_DEF_DIST = nbaleague_df$CLOSE_DEF_DIST
+SHOT_DIST = nbaleague_df$SHOT_DIST
+CLOSEST_DEFENDER = nbaleague_df$CLOSEST_DEFENDER
+
+for (i in 1:468) {
+  OppFG[i] = sum(SUCCESS[CLOSEST_DEFENDER == DefenderList[i]])/length(SUCCESS[nbaleague_df$CLOSEST_DEFENDER == DefenderList[i]])
+  OppPPP[i] = sum(PTS[CLOSEST_DEFENDER == DefenderList[i]])/length(SUCCESS[nbaleague_df$CLOSEST_DEFENDER == DefenderList[i]])
+  OppDist[i] = sum(CLOSE_DEF_DIST[CLOSEST_DEFENDER == DefenderList[i]])/length(SUCCESS[CLOSEST_DEFENDER == DefenderList[i]])
+  ShotsCont[i] = length(SUCCESS[CLOSEST_DEFENDER == DefenderList[i] & CLOSE_DEF_DIST <= 3.5])
+  RimDist[i] = sum(SHOT_DIST[CLOSEST_DEFENDER == DefenderList[i]])/length(SUCCESS[CLOSEST_DEFENDER == DefenderList[i]])
+  ShotsNear[i] = length(SUCCESS[CLOSEST_DEFENDER == DefenderList[i]])
+}
+```
+
+Establish the player defensive ability index data frame DefDF and make statistics:
+
+```{r, include=FALSE}
+DefDF = data.frame(DefenderList, OppFG, OppPPP, OppDist, ShotsCont, RimDist, ShotsNear)
+summary(DefDF)
+
+gg1 <- ggplot(DefDF, aes(x = OppFG)) + geom_density()
+DefDF[DefDF$OppFG < .1 | DefDF$OppFG > .90,]
+
+DefDF = DefDF[DefDF$ShotsCont > 20,]
+ggplot(DefDF, aes(x = OppFG)) + geom_density()
+
+summary(DefDF$ShotsCont)
+
+gg2 <- ggplot(DefDF[DefDF$ShotsCont >= 70,], aes(x = OppFG)) + geom_density()
+
+DefDF[DefDF$ShotsCont >= 70 & DefDF$OppFG <= .41,]$DefenderList
+```
+```{r}
+grid.arrange(gg1, gg2,nrow = 2, ncol = 2)
+```
+```{r, echo=FALSE}
+ggplot(data = DefDF[DefDF$ShotsCont >= 70 & DefDF$OppFG <= .41,],
+       aes(x = OppFG, y = OppPPP)) +
+  geom_point(colour = "black", size = 2) +
+  geom_point(aes(colour = DefenderList)) +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_text(aes(label = DefenderList), size = 3, vjust = 0, check_overlap = TRUE) +
+  guides(colour = FALSE) +
+  labs(x = "Opponent Field Goal Percentage", y = "Opponent Points per Possesion")
+```
+
+This gives us the top 15 or so for opponent FG% for defenders who contested 150 or more shots. The list contains mostly players known for their defensive prowess, like Andrew Bogut or Rudy Gobert, but the list also contains players considered average to below-average defensive players in Monta Ellis and Steph Curry. Plotting the two shows a clear correlation between the two statistics, but a great deal of variation still.
+
+
+# Conclusion
+
+In this report, we have used various statistical tools to explore the NBA data set. We performed some
+correlation analyses(Pearson correlation) and some tests on means and variances using the
+t-test and ANOVA, together with various tests for checking conditions. We also examined the top players to compare the result in every case.
+ In addition, we computed and discussed some linear regression and logistic regression models, and used various graphical representation
+tools to illustrate the data and our findings. For the parametric tests, sample sizes were generally large enough to ensure the validity of the normal approximation framework.
+
+Our main observations can be summarized as follows:
+1. The elite basketball players actually cope regularly with the tiredness of their shooting accuracy. As quickly as the game reaches an intensity beyond ordinary tiredness effects, the precision of the shot is reduced in an average.
+2. Top players do not get affected by last seconds stress as much as average players. They keep up a quite high accuracy even for the last second of the shot clock (35%).
+3. Three individual players: James Harden, Klay Thompson and Monta Ellis are most likely to win in the single match by chart and test when they score more in single game.
+4. There was no correlation between the top scorers' field target attempts and the match outcomes. One probable explanation is that the opponent may focus more easily on the defensive side of a particular player, and the general effectiveness of the team begins to decline. Therefore, overuse of a top player's scoring power is probably not a smart method if the team wishes to enhance the chance of a game.
+5.Defender distance in specific ranges has been impacted by the accuracy rate.
+These observations are in our opinion interesting and appear to be statistically significant. Our conclusions
+should nevertheless be checked and refined by further analyses, potentially using other sources of data.
+
+# Reference
+
+Investigating NBA Shot Data | Data Science Blog.
+https://nycdatascience.com/blog/student-works/investigating-nba-shot-data/
+
+https://www.kaggle.com/slangenborg/analyzing-the-best-defenders-in-the-nba/report
+
+Kaggle.com. 2021. Analyzing the Best Defenders in the NBA. [online] Available at: <https://www.kaggle.com/slangenborg/analyzing-the-best-defenders-in-the-nba/report> [Accessed 12 August 2021].
+
+Ahart (1973). In Kendall, P. and Hollon, S. (1979). Cognitive-behavioral interventions. New York: Academic Press. Economist: As sweet as ever (2015) Available at: http://www.economist.com/blogs/gametheory/2015/06/home-advantage-basketball (http://www.economist.com/blogs/gametheory/2015/06/home-advantage-basketball) (Accessed: 16 October 2016).
+
+Erculj, F. and Supej, M. (2009). Impact of Fatigue on the Position of the Release Arm and Shoulder Girdle over a Longer Shooting Distance for an Elite Basketball Player. Journal of Strength and Conditioning Research, 23(3), pp.1029-1036.
+
+Gilovich, T., Vallone, R. and Tversky, A. (1985) â The hot hand in basketball: On the misperception of random sequencesâ , Cognitive Psychology, 17(3), pp. 295â “314. doi: 10.1016/0010-0285(85)90010-6.
+
+Mascret, N., V., Buekers, M., Casanova, R., Marqueste, T., Montagne, G., Rao, G., Roux, Y. and Cury, F. (2016). The Influence of the â Trier Social Stress Testâ on Free Throw Performance in Basketball: An Interdisciplinary Study. PLOS ONE, 11(6), p.e0157215.
+
+
+
